@@ -1,0 +1,30 @@
+body, .stApp {
+    background-color: #f9f9f9;
+    color: #111;
+    font-family: "Segoe UI", sans-serif;
+}
+
+h1, h2, h3, h4, h5 {
+    color: #0056b3;
+}
+
+.stDataFrame, .stTable {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+.stDownloadButton button {
+    background-color: #007bff !important;
+    color: white !important;
+    border-radius: 10px;
+    border: none;
+}
+
+.stDownloadButton button:hover {
+    background-color: #0056b3 !important;
+}
+
+.stSidebar {
+    background-color: #e9eef7 !important;
+    color: #000000 !important;
+}

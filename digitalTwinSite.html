@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title> Cascais 3D — Waste Management Digital Twin</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.15.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.15.0/mapbox-gl.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map"></div>
+  <div class="title"> Cascais 3D - Waste Management Digital Twin</div>
+
+  <div class="control-panel">
+    <label>Select Forecast:</label><br>
+    <select id="forecast">
+      <option value="bins_latest_fixed.geojson">Current Status</option>
+      <option value="bins_prediction_1h.geojson">+1 Hour</option>
+      <option value="bins_prediction_2h.geojson">+2 Hours</option>
+      <option value="bins_prediction_3h.geojson">+3 Hours</option>
+      <option value="bins_prediction_4h.geojson">+4 Hours</option>
+      <option value="bins_prediction_5h.geojson">+5 Hours</option>
+      <option value="bins_prediction_6h.geojson">+6 Hours</option>
+    </select>
+
+    <!-- New Button to open yearlyprediction Streamlit app -->
+    <button class="forecast-btn" onclick="window.open('http://localhost:8501', '_blank')">
+       View Yearly Forecast
+    </button>
+    <button class="forecast-btn" style="background: linear-gradient(90deg, #ff7f50, #ff4500);" onclick="window.open('http://localhost:8502/?mode=simulation', '_blank')">
+     Run Textile Simulation
+  </button>
+  </div>
+
+  <script>
+    //  Mapbox Token
+    mapboxgl.accessToken = 'YOUR_MAPBOX_PUBLIC_TOKEN';
+
+    //  Initialize Map
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: [-9.425, 38.697],
+      zoom: 15.8,
+      pitch: 70,
+      bearing: 35,
+      antialias: true
+    });
+
+    map.on('load', () => {
+      console.log("Map loaded.");
+
+      // Add Terrain
+      map.addSource('mapbox-dem', {
+        type: 'raster-dem',
+        url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+        tileSize: 512,
+        maxzoom: 14
+      });
+      map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.3 });
+
+      // Sky
+      map.addLayer({
+        id: 'sky',
+        type: 'sky',
+        paint: { 'sky-type': 'atmosphere', 'sky-atmosphere-sun-intensity': 15 }
+      });
+
+      // Lighting
+      map.setLight({
+        anchor: 'viewport',
+        color: '#ffffff',
+        intensity: 0.9,
+        position: [1.15, 210, 45]
+      });
+
+      // 3D Buildings
+      map.addLayer({
+        id: '3d-buildings',
+        source: 'composite',
+        'source-layer': 'building',
+        filter: ['==', 'extrude', 'true'],
+        type: 'fill-extrusion',
+        minzoom: 15,
+        paint: {
+          'fill-extrusion-color': [
+            'interpolate', ['linear'], ['get', 'height'],
+            0, '#f0ede2',
+            120, '#a35d2f'
+          ],
+          'fill-extrusion-height': [
+            'interpolate', ['linear'], ['zoom'],
+            15, 0,
+            15.05, ['get', 'height']
+          ],
+          'fill-extrusion-opacity': 1
+        }
+      });
+
+      //  Add Bins Source
+      const defaultData = 'bins_latest_fixed.geojson';
+      map.addSource('bins', { type: 'geojson', data: defaultData });
+
+      map.addLayer({
+        id: 'bins-layer',
+        type: 'circle',
+        source: 'bins',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 10],
+          'circle-color': [
+            'interpolate', ['linear'],
+            ['coalesce',
+              ['get', 'fill_level_future'],
+              ['get', 'fill_level_now'],
+              ['get', 'fill_level'],
+              0
+            ],
+            0, '#00FF00',
+            25, '#ADFF2F',
+            50, '#FFFF00',
+            75, '#FFA500',
+            100, '#FF0000'
+          ],
+          'circle-stroke-color': '#000',
+          'circle-stroke-width': 1.2,
+          'circle-opacity': 0.95
+        }
+      }, '3d-buildings');
+
+      // Popup
+      map.on('click', 'bins-layer', (e) => {
+        const p = e.features[0].properties;
+        const id = p.id || "Unknown";
+        const rua = p.rua || "N/A";
+        const local = p.localidade || "N/A";
+        let tipoRaw = p.tipo || p.type || p.tipo_id || "Unknown";
+        const tipoMap = {
+          "7": "🗑️ Indiferenciado (Mixed Waste)",
+          "8": "♻️ Recicláveis (Selective: Paper/Plastic/Glass)",
+          "ind": "🗑️ Indiferenciado",
+          "Papel": "📰 Paper",
+          "Vidro": "🍾 Glass",
+          "Embalagens": "🧃 Packaging"
+        };
+        const tipo = tipoMap[tipoRaw] || tipoRaw;
+        const now = p.fill_level_now || p.fill_level || 0;
+        const future = p.fill_level_future || now;
+        const hours = p.hours_ahead || 0;
+
+        new mapboxgl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="font-size:13px;">
+              <b>♻️ Bin ${id}</b><br>
+              <b>Type:</b> ${tipo}<br>
+              <b>📍 Location:</b> ${rua}, ${local}<br>
+              <b>🟢 Current:</b> ${now}%<br>
+              <b>🕒 Forecast:</b> ${future}% (+${hours}h)
+            </div>
+          `)
+          .addTo(map);
+      });
+
+      map.on('mouseenter', 'bins-layer', () => map.getCanvas().style.cursor = 'pointer');
+      map.on('mouseleave', 'bins-layer', () => map.getCanvas().style.cursor = '');
+
+      //  Forecast Selector
+      document.getElementById('forecast').addEventListener('change', (e) => {
+        const selected = e.target.value;
+        console.log(" Loading:", selected);
+        map.getSource('bins').setData(selected);
+      });
+
+      //  Fly-in and one-time rotation
+      map.flyTo({
+        center: [-9.425, 38.697],
+        zoom: 15.8,
+        pitch: 70,
+        bearing: 35,
+        duration: 4000
+      });
+
+      function singleFullRotation() {
+        const startBearing = map.getBearing();
+        const duration = 12000;
+        const startTime = performance.now();
+        function animate(t) {
+          const progress = Math.min((t - startTime) / duration, 1);
+          const bearing = startBearing + 360 * progress;
+          map.setBearing(bearing);
+          if (progress < 1) requestAnimationFrame(animate);
+        }
+        requestAnimationFrame(animate);
+      }
+
+      map.once('moveend', singleFullRotation);
+    });
+  </script>
+</body>
+</html>
